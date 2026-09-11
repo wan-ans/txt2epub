@@ -31,7 +31,7 @@ import uuid
 import zipfile
 
 APP_NAME = "TXT ↔ EPUB 工具箱"
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 
 NS_OPF = "http://www.idpf.org/2007/opf"
 NS_DC = "http://purl.org/dc/elements/1.1/"
@@ -1191,6 +1191,132 @@ class EpubFile:
         del self.chapters[index]
         self._toc_dirty = True
 
+    # ---- 正文文本 / 新增章节 ----
+    def chapter_text(self, index: int) -> str:
+        """返回本章可直接编辑的正文纯文本（不含重复的章节标题行）。"""
+        ch = self.chapters[index]
+        src = self.entries.get(ch["path"], b"").decode("utf-8", "replace")
+        return xhtml_body_text(src, ch["title"])
+
+    def set_chapter_text(self, index: int, text: str) -> bool:
+        """用纯文本替换本章正文。
+
+        只替换 <body> 内部，保留原文件的 <head>、样式引用等，避免破坏第三方书的排版；
+        正文会重建为「标题 + 段落」结构，行内格式（加粗/斜体/链接）不再保留。
+        """
+        ch = self.chapters[index]
+        raw = self.entries.get(ch["path"])
+        if raw is None:
+            return False
+        s = raw.decode("utf-8", "replace")
+        body = text_to_html(text) or '<p class="noindent">（本章暂无内容）</p>'
+        section = ('<section epub:type="chapter">\n'
+                   '<h1 class="ctitle">%s</h1>\n%s\n</section>' % (xesc(ch["title"]), body))
+        new_s, n = re.subn(r"(?is)(<body\b[^>]*>)(.*?)(</body\s*>)",
+                           lambda m: m.group(1) + "\n" + section + "\n" + m.group(3), s, count=1)
+        if n == 0:
+            new_s = self._render_chapter(ch["path"], ch["title"], text)
+        else:
+            new_s = re.sub(r"(?is)(<title[^>]*>)(.*?)(</title>)",
+                           lambda m: m.group(1) + xesc(ch["title"]) + m.group(3), new_s, count=1)
+        self.entries[ch["path"]] = new_s.encode("utf-8")
+        return True
+
+    def _unique_id(self, prefix: str = "item") -> str:
+        used = set(it.get("id") for it in self._items())
+        n = 1
+        while ("%s%d" % (prefix, n)) in used:
+            n += 1
+        return "%s%d" % (prefix, n)
+
+    def _new_chapter_href(self) -> str:
+        """在已有章节所在目录里找一个没被占用的章节文件名。"""
+        base_dir = self.opf_dir
+        if self.chapters:
+            base_dir = posixpath.dirname(self.chapters[0]["path"]) or self.opf_dir
+        n = 1
+        while True:
+            cand = posixpath.normpath(posixpath.join(base_dir, "chap_%03d.xhtml" % n))
+            if cand not in self.entries:
+                return cand
+            n += 1
+
+    def _chapter_css_href(self, path: str) -> str:
+        css = posixpath.join(self.opf_dir, "style.css")
+        if css in self.entries:
+            return self._rel(posixpath.dirname(path), css)
+        return ""
+
+    def _render_chapter(self, path: str, title: str, text: str) -> str:
+        """按本工具的标准模板渲染一个完整章节 XHTML。"""
+        lang = self.metadata().get("language") or "zh-CN"
+        body = text_to_html(text) or '<p class="noindent">（本章暂无内容）</p>'
+        css_href = self._chapter_css_href(path)
+        src = XHTML_TMPL.format(lang=lang, title=xesc(title),
+                                css_href=xattr(css_href), body=body)
+        if not css_href:
+            src = src.replace('<link rel="stylesheet" type="text/css" href=""/>', "")
+        return src
+
+    def add_chapter(self, index, title: str, text: str = "") -> int:
+        """插入新章节并返回其下标。
+
+        index 为 None / 越界时追加到全书末尾；否则插到该位置（原该位置的章节后移）。
+        目录（nav.xhtml / toc.ncx）在保存时统一重建。
+        """
+        import xml.etree.ElementTree as ET
+        title = (title or "").strip() or "新章节"
+        if index is None or index < 0 or index > len(self.chapters):
+            index = len(self.chapters)
+        manifest = self._manifest()
+        if manifest is None:
+            raise ValueError("EPUB 缺少 manifest，无法新增章节")
+        spine = self._spine()
+
+        path = self._new_chapter_href()
+        href = self._rel(self.opf_dir, path)
+        iid = self._unique_id("newchap")
+        item = ET.SubElement(manifest, self._opf("item"))
+        item.set("id", iid)
+        item.set("href", href)
+        item.set("media-type", "application/xhtml+xml")
+        self.entries[path] = self._render_chapter(path, title, text).encode("utf-8")
+
+        # 写入顺序：紧跟在前一章之后，保持 zip 内条目与阅读顺序一致
+        pos = len(self.order)
+        if index > 0:
+            prev = self.chapters[index - 1]["path"]
+            if prev in self.order:
+                pos = self.order.index(prev) + 1
+        self.order.insert(pos, path)
+
+        # spine 位置：插到前一章之后；index=0 时插到原第一章之前
+        if spine is not None:
+            ref = ET.Element(self._opf("itemref"))
+            ref.set("idref", iid)
+            refs = list(spine.findall(self._opf("itemref")))
+            anchor_id = self.chapters[index - 1]["id"] if index > 0 else None
+            before_id = self.chapters[index]["id"] if index < len(self.chapters) else None
+            placed = False
+            if anchor_id is not None:
+                for i, r in enumerate(refs):
+                    if r.get("idref") == anchor_id:
+                        spine.insert(i + 1, ref)
+                        placed = True
+                        break
+            elif before_id is not None:
+                for i, r in enumerate(refs):
+                    if r.get("idref") == before_id:
+                        spine.insert(i, ref)
+                        placed = True
+                        break
+            if not placed:
+                spine.append(ref)
+
+        self.chapters.insert(index, {"id": iid, "href": href, "path": path, "title": title})
+        self._toc_dirty = True
+        return index
+
     # ---- 保存 ----
     def _serialize_opf(self) -> bytes:
         import xml.etree.ElementTree as ET
@@ -1319,6 +1445,20 @@ def xhtml_to_text(s: str) -> str:
     s = re.sub(r" *\n *", "\n", s)
     s = re.sub(r"\n{3,}", "\n\n", s)
     return s.strip()
+
+
+def xhtml_body_text(source: str, title: str = "") -> str:
+    """从章节 XHTML 里取出可编辑的正文纯文本（去掉与章节标题重复的那个标题行）。"""
+    m = re.search(r"(?is)<body\b[^>]*>(.*?)</body\s*>", source)
+    inner = m.group(1) if m else source
+    t = (title or "").strip()
+    if t:
+        hm = re.search(r"(?is)<h[1-3][^>]*>(.*?)</h[1-3]>", inner)
+        if hm is not None:
+            head = strip_tags(hm.group(1)).strip()
+            if head and (head == t or (len(head) >= 2 and (head in t or t in head))):
+                inner = inner[:hm.start()] + inner[hm.end():]
+    return xhtml_to_text(inner).strip()
 
 
 def epub_to_text(path: str) -> str:
@@ -1613,6 +1753,67 @@ def run_selftest(report_path: str = None) -> int:
                 except ET.ParseError as exc:
                     bad.append("%s: %s" % (n, exc))
         check(not bad, "第三方 EPUB 保存后 XHTML 均可解析（%s）" % (bad or "无"))
+
+    # 8. 新增章节 / 正文文本编辑
+    log("\n[8] 新增章节与正文文本编辑")
+    eb = EpubFile(out)
+    n_before = len(eb.chapters)
+    idx_new = eb.add_chapter(1, "插入章 测试", "第一段。\n第二段。")
+    check(len(eb.chapters) == n_before + 1, "新增后章节数 %d（原 %d）" % (len(eb.chapters), n_before))
+    check(idx_new == 1 and eb.chapters[1]["title"] == "插入章 测试",
+          "插入到指定位置：第 %d 章 = %s" % (idx_new + 1, eb.chapters[1]["title"]))
+    check(eb.chapters[2]["title"] == "第三章 测试", "原第 2 章后移为：%s" % eb.chapters[2]["title"])
+    got = re.sub(r"\s", "", eb.chapter_text(1))
+    check(got == "第一段。第二段。", "新章正文读回不含标题行：%r" % got)
+    eb.set_chapter_text(1, "改过的正文第一段。\n改过的第二段。")
+    t_after = re.sub(r"\s", "", eb.chapter_text(1))
+    check(t_after == "改过的正文第一段。改过的第二段。", "正文文本编辑生效：%r" % t_after)
+    eb.add_chapter(None, "末尾新章", "末尾内容。")
+    check(eb.chapters[-1]["title"] == "末尾新章", "index=None 时追加到末尾")
+    eb.save()
+    eb2 = EpubFile(out)
+    titles = [c["title"] for c in eb2.chapters]
+    check(titles == ["第二章 改名后", "插入章 测试", "第三章 测试", "末尾新章"],
+          "保存后章节顺序正确：%s" % titles)
+    check("改过的正文第一段。" in eb2.to_text(), "保存后正文改动可读回")
+    with zipfile.ZipFile(out) as z:
+        names = set(z.namelist())
+        infos = z.infolist()
+        check(infos[0].filename == "mimetype" and infos[0].compress_type == zipfile.ZIP_STORED,
+              "新增章节后 mimetype 仍在首位且未压缩")
+        root = ET.fromstring(z.read("OEBPS/content.opf"))
+        items = root.find("{%s}manifest" % NS_OPF).findall("{%s}item" % NS_OPF)
+        ids = [it.get("id") for it in items]
+        check(len(ids) == len(set(ids)), "manifest 的 id 无重复")
+        miss = []
+        for it in items:
+            p = posixpath.normpath(posixpath.join("OEBPS", it.get("href")))
+            if p not in names:
+                miss.append(p)
+        check(not miss, "新增章节后 manifest 引用完整（缺失 %s）" % (miss or "无"))
+        spine_ids = [r.get("idref") for r in root.find("{%s}spine" % NS_OPF).findall("{%s}itemref" % NS_OPF)]
+        check(all(s in ids for s in spine_ids), "新增章节后 spine 引用完整")
+        navtxt = z.read("OEBPS/nav.xhtml").decode("utf-8")
+        check(all(t in navtxt for t in titles), "nav 目录已包含新增章节")
+        ncx = z.read("OEBPS/toc.ncx").decode("utf-8")
+        check(ncx.count("<navPoint") == len(titles),
+              "ncx 条目数 = 章节数（%d/%d）" % (ncx.count("<navPoint"), len(titles)))
+        bad = []
+        for n in names:
+            if n.endswith(".xhtml"):
+                try:
+                    ET.fromstring(z.read(n))
+                except ET.ParseError as exc:
+                    bad.append("%s: %s" % (n, exc))
+        check(not bad, "新增章节后 XHTML 均可解析（%s）" % (bad or "无"))
+
+    eb3 = EpubFile(out)
+    eb3.add_chapter(0, "卷首新章", "卷首内容。")
+    eb3.save()
+    eb4 = EpubFile(out)
+    check(eb4.chapters[0]["title"] == "卷首新章", "插入到全书最前面：%s" % eb4.chapters[0]["title"])
+    check(len(eb4.chapters) == len(titles) + 1, "插入到开头后章节数 %d" % len(eb4.chapters))
+    check(re.sub(r"\s", "", eb4.chapter_text(0)) == "卷首内容。", "新章正文（插到开头）可读回")
 
     log("\n=== 结果：%s ===" % ("全部通过" if not failures else "%d 项失败" % len(failures)))
     for f in failures:
@@ -2120,7 +2321,7 @@ def start_gui() -> int:
             paned = ttk.Panedwindow(self, orient="horizontal")
             paned.grid(row=1, column=0, sticky="nsew", pady=8)
 
-            left = ttk.LabelFrame(paned, text=" 章节列表 ", padding=6, width=274)
+            left = ttk.LabelFrame(paned, text=" 章节列表 ", padding=6, width=300)
             left.grid_propagate(False)
             left.columnconfigure(0, weight=1)
             left.rowconfigure(0, weight=1)
@@ -2137,11 +2338,13 @@ def start_gui() -> int:
             self.chap_list.bind("<<TreeviewSelect>>", self.on_select)
             lb = ttk.Frame(left)
             lb.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(6, 0))
-            ttk.Button(lb, text="重命名", command=self.rename_chapter, width=8).pack(side="left")
-            ttk.Button(lb, text="删除章节", command=self.delete_chapter, width=8).pack(side="left", padx=6)
+            ttk.Button(lb, text="新增章节", command=self.add_chapter, width=8).pack(side="left")
+            ttk.Button(lb, text="重命名", command=self.rename_chapter, width=8).pack(side="left", padx=4)
+            ttk.Button(lb, text="删除章节", command=self.delete_chapter, width=8).pack(side="left")
             paned.add(left, weight=1)
 
             right = ttk.Notebook(paned)
+            self.nb = right
             paned.add(right, weight=3)
 
             # --- 元数据页 ---
@@ -2174,6 +2377,44 @@ def start_gui() -> int:
             ttk.Label(cov, text="封面会自动缩放为最长边 1600×2560 内的 JPEG。",
                       foreground="#666", justify="left", wraplength=260).grid(
                 row=3, column=1, sticky="w", pady=(6, 0))
+
+            # --- 正文编辑页 ---
+            body_tab = ttk.Frame(right, padding=10)
+            self.tab_body = body_tab
+            right.add(body_tab, text=" 正文编辑 ")
+            body_tab.columnconfigure(0, weight=1)
+            body_tab.rowconfigure(2, weight=1)
+
+            bar2 = ttk.Frame(body_tab)
+            bar2.grid(row=0, column=0, sticky="ew", pady=(0, 6))
+            ttk.Button(bar2, text="保存本章修改", command=self.save_chapter_text, width=12).pack(side="left")
+            ttk.Button(bar2, text="放弃修改并重新载入", command=self.reload_chapter_text,
+                       width=17).pack(side="left", padx=6)
+            self.var_wc = tk.StringVar(value="")
+            ttk.Label(bar2, textvariable=self.var_wc, foreground="#666").pack(side="right")
+
+            fr = ttk.Frame(body_tab)
+            fr.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 6))
+            ttk.Label(fr, text="查找：").pack(side="left")
+            self.var_find = tk.StringVar()
+            ttk.Entry(fr, textvariable=self.var_find, width=14).pack(side="left")
+            ttk.Label(fr, text="替换为：").pack(side="left", padx=(8, 0))
+            self.var_repl = tk.StringVar()
+            ttk.Entry(fr, textvariable=self.var_repl, width=14).pack(side="left")
+            ttk.Button(fr, text="替换", command=lambda: self.do_replace(False), width=7).pack(
+                side="left", padx=(8, 4))
+            ttk.Button(fr, text="全部替换", command=lambda: self.do_replace(True), width=9).pack(side="left")
+
+            self.txt_body = tk.Text(body_tab, wrap="word", width=50, font=UI_FONT, undo=True)
+            self.txt_body.grid(row=2, column=0, sticky="nsew")
+            ysb2 = ttk.Scrollbar(body_tab, orient="vertical", command=self.txt_body.yview)
+            ysb2.grid(row=2, column=1, sticky="ns")
+            self.txt_body.configure(yscrollcommand=ysb2.set)
+            self.txt_body.bind("<<Modified>>", self.on_body_modified)
+            ttk.Label(body_tab, text="正文按「一行一段」编辑，空行分段。保存后本章会重建为「标题 + 段落」结构，"
+                                     "行内格式（加粗/斜体/链接）不再保留；要精确保留请用「章节源码」页。",
+                      foreground="#888", wraplength=620, justify="left").grid(
+                row=3, column=0, columnspan=2, sticky="w", pady=(6, 0))
 
             # --- 章节源码页 ---
             src = ttk.Frame(right, padding=10)
@@ -2223,6 +2464,9 @@ def start_gui() -> int:
             self.btn_saveas.configure(state="normal")
             self.btn_txt.configure(state="normal")
             self.txt_src.delete("1.0", "end")
+            self.txt_body.delete("1.0", "end")
+            self.txt_body.edit_modified(False)
+            self.var_wc.set("")
             self.var_status.set("已打开：%d 章" % len(self.book.chapters))
 
         def refresh_chapters(self):
@@ -2270,7 +2514,109 @@ def start_gui() -> int:
                 return
             self.txt_src.delete("1.0", "end")
             self.txt_src.insert("1.0", self.book.chapter_source(i))
+            self.txt_body.delete("1.0", "end")
+            self.txt_body.insert("1.0", self.book.chapter_text(i))
+            self.txt_body.edit_modified(False)
+            self.txt_body.edit_reset()
+            self.update_wordcount()
             self.var_status.set("第 %d 章：%s" % (i + 1, self.book.chapters[i]["title"]))
+
+        # ---- 正文文本编辑 ----
+        def on_body_modified(self, _evt=None):
+            if self.txt_body.edit_modified():
+                self.txt_body.edit_modified(False)
+                self.update_wordcount()
+
+        def update_wordcount(self):
+            if self.book is None:
+                self.var_wc.set("")
+                return
+            t = self.txt_body.get("1.0", "end-1c")
+            self.var_wc.set("本章 %d 字（不含空白）" % len(re.sub(r"\s", "", t)))
+
+        def save_chapter_text(self):
+            from tkinter import messagebox
+            i = self._sel_index()
+            if i is None or self.book is None:
+                messagebox.showinfo("提示", "请先在左侧章节列表里选一章")
+                return
+            self.book.set_chapter_text(i, self.txt_body.get("1.0", "end-1c"))
+            self.txt_src.delete("1.0", "end")
+            self.txt_src.insert("1.0", self.book.chapter_source(i))
+            self.var_status.set("第 %d 章正文已更新，记得点右上角「保存」写入文件" % (i + 1))
+
+        def reload_chapter_text(self):
+            i = self._sel_index()
+            if i is None or self.book is None:
+                return
+            self.txt_body.delete("1.0", "end")
+            self.txt_body.insert("1.0", self.book.chapter_text(i))
+            self.txt_body.edit_modified(False)
+            self.update_wordcount()
+            self.var_status.set("已重新载入第 %d 章正文" % (i + 1))
+
+        def do_replace(self, replace_all: bool):
+            if self.book is None:
+                return
+            find = self.var_find.get()
+            if not find:
+                self.var_status.set("请先在「查找」框里填写内容")
+                return
+            repl = self.var_repl.get()
+            if replace_all:
+                text = self.txt_body.get("1.0", "end-1c")
+                cnt = text.count(find)
+                if not cnt:
+                    self.var_status.set("没有找到「%s」" % find)
+                    return
+                self.txt_body.delete("1.0", "end")
+                self.txt_body.insert("1.0", text.replace(find, repl))
+                self.update_wordcount()
+                self.var_status.set("已替换 %d 处（记得点「保存本章修改」）" % cnt)
+                return
+            pos = self.txt_body.search(find, "insert", stopindex="end")
+            if not pos:
+                pos = self.txt_body.search(find, "1.0", stopindex="end")
+            if not pos:
+                self.var_status.set("没有找到「%s」" % find)
+                return
+            end = "%s+%dc" % (pos, len(find))
+            self.txt_body.delete(pos, end)
+            self.txt_body.insert(pos, repl)
+            self.txt_body.mark_set("insert", "%s+%dc" % (pos, len(repl)))
+            self.txt_body.see(pos)
+            self.update_wordcount()
+            self.var_status.set("已替换 1 处（继续点「替换」往下找）")
+
+        # ---- 新增章节 ----
+        def add_chapter(self):
+            from tkinter import simpledialog, messagebox
+            if self.book is None:
+                messagebox.showinfo("提示", "请先打开一个 EPUB 文件")
+                return
+            i = self._sel_index()
+            if i is None:
+                prompt = "新章节标题（将追加到全书末尾）："
+                pos = len(self.book.chapters)
+            else:
+                prompt = "新章节标题（将插入到第 %d 章之后）：" % (i + 1)
+                pos = i + 1
+            title = simpledialog.askstring("新增章节", prompt, parent=self)
+            if not title or not title.strip():
+                return
+            title = title.strip()
+            idx = self.book.add_chapter(pos, title, "")
+            self.refresh_chapters()
+            self.chap_list.selection_set(str(idx))
+            self.chap_list.see(str(idx))
+            self.on_select()
+            try:
+                self.nb.select(self.tab_body)
+                self.txt_body.focus_set()
+            except Exception:
+                pass
+            self.var_status.set("已新增《%s》（第 %d 章）：写完正文点「保存本章修改」，再点右上角「保存」"
+                                % (title, idx + 1))
 
         def rename_chapter(self):
             from tkinter import simpledialog
