@@ -1,0 +1,54 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build TXT2EPUB.exe
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build dependencies
+        run: pip install --upgrade pyinstaller pillow
+
+      - name: Build single-file exe
+        shell: pwsh
+        run: ./src/build_exe.ps1
+
+      - name: Run built-in self test
+        shell: pwsh
+        run: |
+          # 注意：exe 是 GUI 子系统程序，PowerShell 直接调用不会等待，必须用 Start-Process -Wait
+          $exe = (Resolve-Path "./src/dist/TXT2EPUB.exe").Path
+          $p = Start-Process -FilePath $exe -ArgumentList "--selftest", "--report", "report.txt" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "自检失败，退出码 $($p.ExitCode)" }
+          Get-Content report.txt -Encoding UTF8
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TXT2EPUB-windows-x64
+          path: src/dist/TXT2EPUB.exe
+          if-no-files-found: error
+
+      - name: Publish release assets
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: src/dist/TXT2EPUB.exe
+          generate_release_notes: true

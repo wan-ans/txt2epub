@@ -1,0 +1,27 @@
+# ---- 构建产物 ----
+build/
+dist/
+*.spec
+*.exe
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# ---- 打包/测试临时文件 ----
+*.epub
+*.log
+report.txt
+!docs/**/*.epub
+
+# ---- 编辑器 / 系统 ----
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+desktop.ini
+.DS_Store
