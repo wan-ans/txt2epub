@@ -31,7 +31,7 @@ import uuid
 import zipfile
 
 APP_NAME = "TXT ↔ EPUB 工具箱"
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 
 NS_OPF = "http://www.idpf.org/2007/opf"
 NS_DC = "http://purl.org/dc/elements/1.1/"
@@ -1815,6 +1815,54 @@ def run_selftest(report_path: str = None) -> int:
     check(len(eb4.chapters) == len(titles) + 1, "插入到开头后章节数 %d" % len(eb4.chapters))
     check(re.sub(r"\s", "", eb4.chapter_text(0)) == "卷首内容。", "新章正文（插到开头）可读回")
 
+    # 9. TXT 导入正文 / 拖放解析
+    log("\n[9] TXT 导入正文与拖放解析")
+    multi_txt = "第一章 甲\n正文甲。\n\n第二章 乙\n正文乙。\n\n第三章 丙\n正文丙。\n"
+    mchs = split_chapters(multi_txt, "auto")
+    check(len(mchs) == 3, "多章 TXT 识别出 %d 章（期望 3）" % len(mchs))
+    check(bool(mchs) and mchs[0][0].startswith("第一章"), "首章标题：%s" % (mchs[0][0] if mchs else "无"))
+    pchs = split_chapters("这只是一段普通正文，没有章节标记。\n第二行也是正文。\n", "auto")
+    check(len(pchs) <= 1, "无章节标记的 TXT 不会被误拆（%d 段）" % len(pchs))
+
+    gbk_text = multi_txt * 30
+    imp = tp("导入_gbk.txt")
+    with open(imp, "wb") as f:
+        f.write(gbk_text.encode("gb18030"))
+    got_text, got_enc = read_text_file(imp, "auto")
+    check(got_text.strip() == gbk_text.strip(),
+          "GBK 编码的 TXT 能自动识别并读入（判定为 %s）" % got_enc)
+
+    if os.name == "nt":
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            class _DROPFILES(ctypes.Structure):
+                _fields_ = [("pFiles", wintypes.DWORD), ("pt", wintypes.POINT),
+                            ("fNC", wintypes.BOOL), ("fWide", wintypes.BOOL)]
+
+            k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            k32.GlobalAlloc.restype = ctypes.c_void_p
+            k32.GlobalAlloc.argtypes = [wintypes.UINT, ctypes.c_size_t]
+            k32.GlobalLock.restype = ctypes.c_void_p
+            k32.GlobalLock.argtypes = [ctypes.c_void_p]
+            k32.GlobalUnlock.argtypes = [ctypes.c_void_p]
+            want = ["C:\\tmp\\甲.txt", "D:\\书\\乙.txt"]
+            hdr = _DROPFILES(pFiles=ctypes.sizeof(_DROPFILES), pt=wintypes.POINT(0, 0),
+                             fNC=False, fWide=True)
+            raw = ctypes.string_at(ctypes.byref(hdr), ctypes.sizeof(hdr)) + \
+                ("".join(p + "\x00" for p in want) + "\x00").encode("utf-16-le")
+            hmem = k32.GlobalAlloc(0x0042, len(raw))
+            ptr = k32.GlobalLock(hmem)
+            ctypes.memmove(ptr, raw, len(raw))
+            k32.GlobalUnlock(hmem)
+            got = _read_hdrop(hmem)
+            check(got == want, "拖放的 HDROP 解析出 %d 个路径：%s" % (len(got), got))
+        except Exception as exc:
+            check(False, "HDROP 解析测试异常：%s" % exc)
+    else:
+        log("  [跳过] 非 Windows 平台不做拖放解析测试")
+
     log("\n=== 结果：%s ===" % ("全部通过" if not failures else "%d 项失败" % len(failures)))
     for f in failures:
         log("  - " + f)
@@ -1958,6 +2006,131 @@ SPLIT_MODES = [
 ]
 
 LANGS = ["zh-CN", "zh-TW", "en", "ja", "ko", "fr", "de", "es", "ru"]
+
+
+# --------------------------------------------------------------------------
+# Windows 资源管理器拖放（纯标准库 ctypes，失败就静默降级为「没有拖放」）
+# --------------------------------------------------------------------------
+def _read_hdrop(hdrop) -> list:
+    """把 WM_DROPFILES 携带的 HDROP 句柄解析成文件路径列表（解析完即释放）。"""
+    import ctypes
+    from ctypes import wintypes
+    shell32 = ctypes.WinDLL("shell32", use_last_error=True)
+    shell32.DragQueryFileW.argtypes = [wintypes.HANDLE, wintypes.UINT,
+                                       wintypes.LPWSTR, wintypes.UINT]
+    shell32.DragQueryFileW.restype = wintypes.UINT
+    shell32.DragFinish.argtypes = [wintypes.HANDLE]
+    shell32.DragFinish.restype = None
+    out = []
+    n = shell32.DragQueryFileW(hdrop, 0xFFFFFFFF, None, 0)
+    for i in range(n):
+        ln = shell32.DragQueryFileW(hdrop, i, None, 0)
+        buf = ctypes.create_unicode_buffer(ln + 1)
+        shell32.DragQueryFileW(hdrop, i, buf, ln + 1)
+        if buf.value:
+            out.append(buf.value)
+    shell32.DragFinish(hdrop)
+    return out
+
+
+def enable_file_drop(root, on_drop):
+    """让 Tk 顶层窗口接受「从资源管理器拖文件进来」。
+
+    只用标准库 ctypes，不引入任何第三方依赖；任何一步失败都返回 None，
+    程序其余功能完全不受影响（界面上另有「导入 TXT…」按钮兜底）。
+    返回值需要由调用方持有，否则窗口过程回调可能被回收。
+    """
+    if os.name != "nt":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+        if ctypes.sizeof(ctypes.c_void_p) != 8:
+            return None
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        shell32 = ctypes.WinDLL("shell32", use_last_error=True)
+        user32.GetParent.argtypes = [wintypes.HWND]
+        user32.GetParent.restype = wintypes.HWND
+        user32.GetWindowLongPtrW.restype = ctypes.c_void_p
+        user32.GetWindowLongPtrW.argtypes = [wintypes.HWND, ctypes.c_int]
+        user32.SetWindowLongPtrW.restype = ctypes.c_void_p
+        user32.SetWindowLongPtrW.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_void_p]
+        user32.CallWindowProcW.restype = ctypes.c_void_p
+        user32.CallWindowProcW.argtypes = [ctypes.c_void_p, wintypes.HWND, wintypes.UINT,
+                                           wintypes.WPARAM, wintypes.LPARAM]
+        shell32.DragAcceptFiles.argtypes = [wintypes.HWND, wintypes.BOOL]
+        shell32.DragAcceptFiles.restype = None
+
+        # 挂根窗口（TkChild）本身：它在 Tk() 时就存在，不像外层的 TkTopLevel
+        # 包装窗口要等窗口真正映射后才有；界面上的子控件都在它下面，
+        # 拖放消息会沿父链上溯到第一个登记过的窗口，正好落在这里。
+        hwnd = root.winfo_id()
+        old = user32.GetWindowLongPtrW(hwnd, -4)          # GWLP_WNDPROC
+        if not old:
+            return None
+
+        WNDPROC = ctypes.WINFUNCTYPE(ctypes.c_void_p, wintypes.HWND, wintypes.UINT,
+                                     wintypes.WPARAM, wintypes.LPARAM)
+        box = {"hwnd": hwnd, "old": old, "wm_dropfiles": 0x0233}
+        pending = []
+
+        # 重要：窗口过程里绝不能调用任何 Tk / Tcl 接口。
+        # Tk 的主循环在派发消息时是不持有 GIL 的，此时若回调进 Tk（哪怕只是 after_idle），
+        # 会让 Tk 的线程状态错乱，随后进程直接 fatal error。
+        # 所以这里只把路径攒进普通列表，交给下面的 Tk 定时轮询去处理。
+        def proc(h, msg, wparam, lparam):
+            try:
+                if msg == box["wm_dropfiles"]:
+                    try:
+                        files = _read_hdrop(wparam)
+                    except Exception:
+                        files = []
+                    if files:
+                        pending.append(files)
+                    return 0
+            except Exception:
+                pass
+            return user32.CallWindowProcW(box["old"], h, msg, wparam, lparam)
+
+        cb = WNDPROC(proc)
+        box["proc"] = cb        # 必须持引用，否则回调被 GC 会导致崩溃
+        box["pending"] = pending
+        user32.SetWindowLongPtrW(hwnd, -4, ctypes.cast(cb, ctypes.c_void_p))
+        shell32.DragAcceptFiles(hwnd, True)
+
+        def pump():
+            try:
+                while pending:
+                    item = pending.pop(0)
+                    try:
+                        on_drop(item)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            try:
+                box["pump_id"] = root.after(250, pump)
+            except Exception:
+                pass
+
+        box["pump_id"] = root.after(250, pump)
+        return box
+    except Exception:
+        return None
+
+
+def disable_file_drop(box):
+    """退出时还原窗口过程，稳妥起见。"""
+    if not box:
+        return
+    try:
+        import ctypes
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        user32.SetWindowLongPtrW.restype = ctypes.c_void_p
+        user32.SetWindowLongPtrW.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p]
+        user32.SetWindowLongPtrW(box["hwnd"], -4, box["old"])
+    except Exception:
+        pass
 
 
 def start_gui() -> int:
@@ -2131,6 +2304,21 @@ def start_gui() -> int:
                     if p not in self.files:
                         self.files.append(p)
             self._refresh()
+
+        def add_paths(self, paths):
+            """把拖进来的文件 / 文件夹加入列表，返回新增个数。"""
+            before = len(self.files)
+            for p in paths:
+                if os.path.isdir(p):
+                    for n in sorted(os.listdir(p)):
+                        if n.lower().endswith(".txt"):
+                            q = os.path.join(p, n)
+                            if q not in self.files:
+                                self.files.append(q)
+                elif p not in self.files:
+                    self.files.append(p)
+            self._refresh()
+            return len(self.files) - before
 
         def remove_sel(self):
             for i in sorted([self.tree.index(x) for x in self.tree.selection()], reverse=True):
@@ -2390,6 +2578,7 @@ def start_gui() -> int:
             ttk.Button(bar2, text="保存本章修改", command=self.save_chapter_text, width=12).pack(side="left")
             ttk.Button(bar2, text="放弃修改并重新载入", command=self.reload_chapter_text,
                        width=17).pack(side="left", padx=6)
+            ttk.Button(bar2, text="导入 TXT…", command=self.import_txt_dialog, width=10).pack(side="left")
             self.var_wc = tk.StringVar(value="")
             ttk.Label(bar2, textvariable=self.var_wc, foreground="#666").pack(side="right")
 
@@ -2411,7 +2600,9 @@ def start_gui() -> int:
             ysb2.grid(row=2, column=1, sticky="ns")
             self.txt_body.configure(yscrollcommand=ysb2.set)
             self.txt_body.bind("<<Modified>>", self.on_body_modified)
-            ttk.Label(body_tab, text="正文按「一行一段」编辑，空行分段。保存后本章会重建为「标题 + 段落」结构，"
+            ttk.Label(body_tab, text="可以直接把 .txt 文件拖进窗口，或用「导入 TXT…」把文件内容读进来；"
+                                     "如果那个 TXT 里识别到多个章节，会问你要不要按章拆成多个新章节。\n"
+                                     "正文按「一行一段」编辑，空行分段。保存后本章会重建为「标题 + 段落」结构，"
                                      "行内格式（加粗/斜体/链接）不再保留；要精确保留请用「章节源码」页。",
                       foreground="#888", wraplength=620, justify="left").grid(
                 row=3, column=0, columnspan=2, sticky="w", pady=(6, 0))
@@ -2618,6 +2809,76 @@ def start_gui() -> int:
             self.var_status.set("已新增《%s》（第 %d 章）：写完正文点「保存本章修改」，再点右上角「保存」"
                                 % (title, idx + 1))
 
+        # ---- 从 TXT 导入正文（按钮 / 拖放） ----
+        def import_txt_dialog(self):
+            from tkinter import filedialog, messagebox
+            if self.book is None:
+                messagebox.showinfo("提示", "请先打开一个 EPUB 文件")
+                return
+            paths = filedialog.askopenfilenames(
+                title="选择 TXT 文件（内容将作为章节正文）",
+                filetypes=[("文本文件", "*.txt"), ("所有文件", "*.*")])
+            if paths:
+                self.import_txt_files(list(paths))
+
+        def import_txt_files(self, paths):
+            """把 TXT 文件内容导入正文编辑区（供「导入 TXT…」按钮和拖放共用）。"""
+            from tkinter import messagebox
+            txts = [p for p in paths if os.path.isfile(p) and p.lower().endswith(".txt")]
+            if not txts:
+                self.var_status.set("只支持 .txt 文件（拖进来的不是 txt，或是个文件夹）")
+                return
+            if self.book is None:
+                messagebox.showinfo("提示", "请先打开一个 EPUB 文件，再把 TXT 拖进来")
+                return
+            for p in txts:
+                try:
+                    self._import_one_txt(p)
+                except Exception as exc:
+                    messagebox.showerror("导入失败", "%s\n%s" % (os.path.basename(p), exc))
+
+        def _import_one_txt(self, path: str) -> int:
+            from tkinter import messagebox
+            text, enc = read_text_file(path, "auto")
+            base = os.path.splitext(os.path.basename(path))[0]
+            chapters = split_chapters(text, "auto", "", 50, base)
+            if len(chapters) > 1:
+                ans = messagebox.askyesno(
+                    "识别到多章",
+                    "《%s》\n编码 %s，共 %d 字，识别到 %d 个章节。\n\n"
+                    "【是】按章拆开，在全书末尾新增 %d 章\n"
+                    "【否】整篇作为当前章节的正文"
+                    % (base, enc, len(text), len(chapters), len(chapters)))
+                if ans:
+                    start = len(self.book.chapters)
+                    for t, body in chapters:
+                        self.book.add_chapter(None, t or base, body)
+                    self.refresh_chapters()
+                    self.chap_list.selection_set(str(start))
+                    self.chap_list.see(str(start))
+                    self.on_select()
+                    self.var_status.set("已从《%s》新增 %d 章（记得点右上角「保存」写入文件）"
+                                        % (base, len(chapters)))
+                    return len(chapters)
+            i = self._sel_index()
+            if i is None:
+                # 当前没选中章节：按文件名新建一章并把内容放进去
+                i = self.book.add_chapter(None, base, text)
+                self.refresh_chapters()
+                self.chap_list.selection_set(str(i))
+                self.chap_list.see(str(i))
+                self.on_select()
+                self.var_status.set("已新建《%s》并写入正文（记得点右上角「保存」写入文件）" % base)
+                return 1
+            self.txt_body.delete("1.0", "end")
+            self.txt_body.insert("1.0", text)
+            self.txt_body.edit_modified(False)
+            self.update_wordcount()
+            self.txt_body.focus_set()
+            self.var_status.set("已把《%s》（%s，%d 字）读入正文编辑区，确认后点「保存本章修改」"
+                                % (base, enc, len(text)))
+            return 1
+
         def rename_chapter(self):
             from tkinter import simpledialog
             i = self._sel_index()
@@ -2778,12 +3039,39 @@ def start_gui() -> int:
     nb.add(tab1, text="  TXT → EPUB  ")
     nb.add(tab2, text="  EPUB 编辑  ")
 
+    def on_files_dropped(files):
+        """把资源管理器拖进来的文件按当前页签分流。"""
+        try:
+            cur = nb.index(nb.select())
+        except Exception:
+            cur = 0
+        if cur == 1:
+            tab2.import_txt_files(files)
+            return
+        txts = [p for p in files if os.path.isdir(p) or p.lower().endswith(".txt")]
+        if not txts:
+            try:
+                tab1.log.insert("end", "拖进来的不是 txt / 文件夹，已忽略\n")
+                tab1.log.see("end")
+            except Exception:
+                pass
+            return
+        added = tab1.add_paths(txts)
+        try:
+            tab1.log.insert("end", "从拖放加入 %d 个文件\n" % added)
+            tab1.log.see("end")
+        except Exception:
+            pass
+
+    drop_box = enable_file_drop(root, on_files_dropped)
+
     def on_close():
         if getattr(tab1, "_running", False):
             from tkinter import messagebox
             if not messagebox.askyesno("确认", "正在转换中，确定要退出吗？"):
                 return
             tab1.stop_flag = True
+        disable_file_drop(drop_box)
         root.destroy()
 
     root.protocol("WM_DELETE_WINDOW", on_close)
