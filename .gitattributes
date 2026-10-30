@@ -1,0 +1,16 @@
+# 统一换行符：仓库与工作区一律 LF，保证 Windows / macOS / Linux 检出后逐字节一致。
+* text=auto eol=lf
+
+# 测试样张保留原始字节（含 GBK 编码），不做行尾转换
+tests/fixtures/*.txt -text
+
+# 二进制文件不做行尾转换
+*.ico   binary
+*.exe   binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.webp  binary
+*.epub  binary
+*.jar   binary

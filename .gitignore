@@ -1,0 +1,22 @@
+# ---- 依赖 ----
+node_modules/
+
+# ---- 构建产物 ----
+dist/
+release/
+build/i18n-shots/
+build/settings-shots/
+tools/e2e-output/
+tools/sample-output/
+
+# ---- 日志与临时文件 ----
+*.log
+*.tmp
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# ---- 编辑器 / IDE ----
+.vscode/
+.idea/
+*.swp

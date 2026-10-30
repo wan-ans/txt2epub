@@ -1,0 +1,207 @@
+[
+  {
+    "name": "应用挂载",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "空状态可见",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "无控制台错误（初始）",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "导入后章节列表出现",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "章节数 > 80",
+    "ok": true,
+    "detail": "total=89"
+  },
+  {
+    "name": "虚拟滚动生效（DOM 行数远小于总数）",
+    "ok": true,
+    "detail": "dom=31/89"
+  },
+  {
+    "name": "toast 不遮挡「生成 EPUB」按钮",
+    "ok": true,
+    "detail": "{\"toast\":true,\"btn\":true,\"overlap\":false,\"toastBottom\":820,\"btnTop\":851,\"toastRaised\":true}"
+  },
+  {
+    "name": "导出按钮完整在视口内且有文字",
+    "ok": true,
+    "detail": "{\"w\":123,\"h\":36,\"inViewport\":true,\"text\":\"生成 EPUB\"}"
+  },
+  {
+    "name": "点击章节后预览切换",
+    "ok": true,
+    "detail": "\"简介\" → \"第3章\""
+  },
+  {
+    "name": "章节列表可滚动",
+    "ok": true,
+    "detail": "{\"scrollable\":true,\"after\":600,\"scrollHeight\":4094,\"clientHeight\":688,\"hasScrollbar\":true}"
+  },
+  {
+    "name": "重命名输入框打开",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "Esc 取消重命名",
+    "ok": true,
+    "detail": "\"第5章\" → \"第5章\""
+  },
+  {
+    "name": "回车保存重命名",
+    "ok": true,
+    "detail": "got \"验收改名章节\""
+  },
+  {
+    "name": "改名同步到左侧列表",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "与上一章合并（章节数减少）",
+    "ok": true,
+    "detail": "89 → 88"
+  },
+  {
+    "name": "非首章时合并按钮可用",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "切换编码立即重解析",
+    "ok": true,
+    "detail": "UTF-8/UTF-8/99% → UTF-8/GB18030/99%"
+  },
+  {
+    "name": "切回自动检测恢复 UTF-8",
+    "ok": true,
+    "detail": "got UTF-8"
+  },
+  {
+    "name": "排版样张存在",
+    "ok": true,
+    "detail": "{\"fs\":\"15px\",\"lh\":\"27px\"}"
+  },
+  {
+    "name": "调整行高后预览实时变化",
+    "ok": true,
+    "detail": "27px → 36px"
+  },
+  {
+    "name": "调整字号后预览实时变化",
+    "ok": true,
+    "detail": "15px → 21px"
+  },
+  {
+    "name": "关闭段首缩进生效",
+    "ok": true,
+    "detail": "text-indent=0px"
+  },
+  {
+    "name": "封面空状态存在",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "选择封面后出现预览",
+    "ok": true,
+    "detail": "dispatch=ok"
+  },
+  {
+    "name": "清除封面回到空状态",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "规则面板已打开",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "新增规则弹窗打开",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "规则弹窗显示命中行数",
+    "ok": true,
+    "detail": "在当前文本中命中 1 行"
+  },
+  {
+    "name": "规则保存后出现在列表",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "规则列表显示命中行数",
+    "ok": true,
+    "detail": "hits=1 行"
+  },
+  {
+    "name": "弹窗可关闭",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "导出产生 blob",
+    "ok": true,
+    "detail": "size=775753 type=application/epub+zip"
+  },
+  {
+    "name": "产物是合法 ZIP/EPUB（PK 头）",
+    "ok": true,
+    "detail": "magic=PK\u0003\u0004"
+  },
+  {
+    "name": "下载文件名以 .epub 结尾",
+    "ok": true,
+    "detail": "测试小说_001 - 测试作者 001.epub"
+  },
+  {
+    "name": "940x640 无横向滚动",
+    "ok": true,
+    "detail": "{\"w\":940,\"c\":940}"
+  },
+  {
+    "name": "940x640 导出按钮完整可见",
+    "ok": true,
+    "detail": "{\"w\":123,\"h\":36,\"inView\":true}"
+  },
+  {
+    "name": "可聚焦元素数量充足",
+    "ok": false,
+    "detail": "29 个"
+  },
+  {
+    "name": "焦点元素获得可见轮廓",
+    "ok": true,
+    "detail": "{\"tag\":\"BUTTON\",\"outline\":\"2px solid\"}"
+  },
+  {
+    "name": "尊重 prefers-reduced-motion",
+    "ok": true,
+    "detail": "transition=1e-05s"
+  },
+  {
+    "name": "深色模式令牌生效",
+    "ok": true,
+    "detail": "{\"bg\":\"#14120f\",\"text\":\"#f2ece1\",\"isDark\":true}"
+  },
+  {
+    "name": "全程无控制台 error",
+    "ok": true,
+    "detail": "none"
+  }
+]

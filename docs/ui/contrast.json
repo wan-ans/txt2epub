@@ -1,0 +1,184 @@
+[
+  {
+    "mode": "浅色",
+    "name": "正文 / 纸面",
+    "ratio": "18.82",
+    "need": 4.5,
+    "pass": true
+  },
+  {
+    "mode": "浅色",
+    "name": "正文 / 页面底色",
+    "ratio": "17.46",
+    "need": 4.5,
+    "pass": true
+  },
+  {
+    "mode": "浅色",
+    "name": "正文 / 侧栏底",
+    "ratio": "18.51",
+    "need": 4.5,
+    "pass": true
+  },
+  {
+    "mode": "浅色",
+    "name": "次要文字 / 纸面",
+    "ratio": "8.39",
+    "need": 4.5,
+    "pass": true
+  },
+  {
+    "mode": "浅色",
+    "name": "弱化文字 / 纸面",
+    "ratio": "5.11",
+    "need": 4.5,
+    "pass": true
+  },
+  {
+    "mode": "浅色",
+    "name": "弱化文字 / 页面底色",
+    "ratio": "4.74",
+    "need": 4.5,
+    "pass": true
+  },
+  {
+    "mode": "浅色",
+    "name": "主按钮文字 / 朱砂底",
+    "ratio": "6.85",
+    "need": 4.5,
+    "pass": true
+  },
+  {
+    "mode": "浅色",
+    "name": "朱砂强调文字 / 纸面",
+    "ratio": "8.87",
+    "need": 4.5,
+    "pass": true
+  },
+  {
+    "mode": "浅色",
+    "name": "成功色 / 纸面",
+    "ratio": "6.46",
+    "need": 4.5,
+    "pass": true
+  },
+  {
+    "mode": "浅色",
+    "name": "警告色 / 纸面",
+    "ratio": "5.92",
+    "need": 4.5,
+    "pass": true
+  },
+  {
+    "mode": "浅色",
+    "name": "危险色 / 纸面",
+    "ratio": "7.57",
+    "need": 4.5,
+    "pass": true
+  },
+  {
+    "mode": "浅色",
+    "name": "黛青 / 纸面",
+    "ratio": "10.98",
+    "need": 4.5,
+    "pass": true
+  },
+  {
+    "mode": "浅色",
+    "name": "控件边框 / 纸面（派生令牌）",
+    "ratio": "3.55",
+    "need": 3,
+    "pass": true
+  },
+  {
+    "mode": "深色",
+    "name": "正文 / 纸面",
+    "ratio": "14.28",
+    "need": 4.5,
+    "pass": true
+  },
+  {
+    "mode": "深色",
+    "name": "正文 / 页面底色",
+    "ratio": "15.90",
+    "need": 4.5,
+    "pass": true
+  },
+  {
+    "mode": "深色",
+    "name": "正文 / 侧栏底",
+    "ratio": "14.88",
+    "need": 4.5,
+    "pass": true
+  },
+  {
+    "mode": "深色",
+    "name": "次要文字 / 纸面",
+    "ratio": "8.95",
+    "need": 4.5,
+    "pass": true
+  },
+  {
+    "mode": "深色",
+    "name": "弱化文字 / 纸面",
+    "ratio": "5.48",
+    "need": 4.5,
+    "pass": true
+  },
+  {
+    "mode": "深色",
+    "name": "弱化文字 / 页面底色",
+    "ratio": "6.10",
+    "need": 4.5,
+    "pass": true
+  },
+  {
+    "mode": "深色",
+    "name": "主按钮文字 / 朱砂底",
+    "ratio": "5.11",
+    "need": 4.5,
+    "pass": true
+  },
+  {
+    "mode": "深色",
+    "name": "朱砂强调文字 / 纸面",
+    "ratio": "7.47",
+    "need": 4.5,
+    "pass": true
+  },
+  {
+    "mode": "深色",
+    "name": "成功色 / 纸面",
+    "ratio": "8.71",
+    "need": 4.5,
+    "pass": true
+  },
+  {
+    "mode": "深色",
+    "name": "警告色 / 纸面",
+    "ratio": "8.62",
+    "need": 4.5,
+    "pass": true
+  },
+  {
+    "mode": "深色",
+    "name": "危险色 / 纸面",
+    "ratio": "7.33",
+    "need": 4.5,
+    "pass": true
+  },
+  {
+    "mode": "深色",
+    "name": "黛青 / 纸面",
+    "ratio": "7.56",
+    "need": 4.5,
+    "pass": true
+  },
+  {
+    "mode": "深色",
+    "name": "控件边框 / 纸面（派生令牌）",
+    "ratio": "4.13",
+    "need": 3,
+    "pass": true
+  }
+]

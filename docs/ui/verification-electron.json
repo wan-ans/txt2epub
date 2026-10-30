@@ -1,0 +1,52 @@
+[
+  {
+    "name": "Electron 窗口渲染出界面（非白屏）",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "window.inkbox 桥接已注入",
+    "ok": true,
+    "detail": "{\"isDesktop\":true,\"platform\":\"win32\",\"version\":\"0.1.0\",\"hasOpenTxtFiles\":true,\"hasOpenTxtFolder\":true,\"hasSaveEpub\":true,\"hasSaveMany\":true,\"hasReveal\":true,\"hasPrefs\":true}"
+  },
+  {
+    "name": "桥接方法完整（CONTRACT 第 2 节）",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "标题栏显示桌面平台标识",
+    "ok": true,
+    "detail": "badge=Windows"
+  },
+  {
+    "name": "空状态出现「打开文件夹」（桌面端专属）",
+    "ok": true,
+    "detail": "[\"选择 TXT 文件\",\"打开文件夹\"]"
+  },
+  {
+    "name": "Electron 内导入 TXT 成功",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "章节解析完成",
+    "ok": true,
+    "detail": "chapters=89"
+  },
+  {
+    "name": "saveEpub 返回 Promise（对话框链路已连）",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "窗口尺寸满足最小 940x640 且无横向滚动",
+    "ok": true,
+    "detail": "{\"w\":1204,\"h\":804,\"innerW\":1189,\"innerH\":740,\"docOverflow\":false}"
+  },
+  {
+    "name": "偏好可写入并可读回（userData 持久化）",
+    "ok": true,
+    "detail": "{\"beforeKeys\":0,\"afterHasProbe\":true}"
+  }
+]
